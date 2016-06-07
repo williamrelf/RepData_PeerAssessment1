@@ -1,0 +1,147 @@
+# Quanitified Self
+
+An analysis of data from a personal monitoring device.
+
+###Dependent Libraries
+
+```{r echo=TRUE}
+library(dplyr)
+library(lattice)
+```
+
+
+###Obtaining the data
+
+The first thing we need to do is attempt to download the required zip file it we haven't got a copy locally. The data required for the analysis is contained within the zip file in CSV format.
+
+The data file contains three variables, namely steps, date and interval. The file contains 17,568 observations.
+
+```{r echo=TRUE}
+if(!file.exists("PersonalMonitoringData.zip")) {
+    download.file(url = "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip", destfile = "PersonalMonitoringData.zip")
+}
+
+unzip(zipfile = "PersonalMonitoringData.zip")
+
+data <- read.csv(file = "activity.csv", header = TRUE, sep = ",", na.strings = c("NA"), as.is = TRUE)
+```
+
+At this point we have all required data in memory. The data is held in a variable named "data". The data variables have been imported "as is", meaning there was no implicit attempt to coerce the data to any default data types. 
+
+The date variable has been imported as a character, the interval as an integer. We create a new variable named "dateTime" by manipulating the interval into a time format string, concatanating the time string to the date, and coercing the complete string to a date (POSIXct). For example, a time interval identifier of 235 would become "02:35" and concatenated to the date. 
+
+```{r echo=TRUE}
+data$time <- as.character(formatC(data$interval, width = 4, flag = 0))
+data$time <- paste(substr(data$time, 1, 2), ":", substr(data$time, 3, 4), sep = "")
+data$dateTime <- as.POSIXct(paste(data$date, data$time), tz = "UTC")
+```
+
+The head of the data set now has the following structure.
+
+```{r echo=TRUE}
+head(data)
+tail(data)
+str(data)
+summary(data)
+```
+
+###Mean steps taken per day
+
+```{r echo=TRUE}
+dailyGroup <- group_by(data, date)
+dailyTotalSteps <- summarise(dailyGroup, sumSteps = sum(steps))
+head(dailyTotalSteps)
+```
+
+The following histogram shows the distribution of the total number of steps taken per day.
+
+```{r echo=TRUE}
+hist(dailyTotalSteps$sumSteps, col = "red", main = "Total Steps per Day", xlab = "Steps", ylab = "Frequency")
+```
+
+Now that we understand the frequency of the total number of steps per day, we can calculate the mean and average.
+
+```{r echo=TRUE}
+meanSteps = mean(dailyTotalSteps$sumSteps, na.rm = TRUE)
+medianSteps = median(dailyTotalSteps$sumSteps, na.rm = TRUE)
+
+meanSteps
+medianSteps
+```
+
+We can see that the mean and the median have a difference of 1.19.
+
+###Average Daily Activity
+
+We first calculate the average activity per five minute time interval. It is at this point that we exclude NA values. We then assign the variables to vectors, ensuring that time is a factor, before plotting the values.
+
+We can see that the time interval with the highest average number of steps is 08:35. Perhaps this is walking to work? A morning workout?
+
+```{r echo=TRUE}
+dataNoNA <- subset(data, !is.na(data$steps))
+averageDailyActivityGroup <- group_by(dataNoNA, time)
+averageDailyActivity <- summarise(averageDailyActivityGroup, averageSteps = mean(steps))
+
+averageSteps <- averageDailyActivity$averageSteps
+time <- as.factor(averageDailyActivity$time)
+
+plot(x = time, y = averageSteps, main = "Average Daily Activity", xlab = "Time", ylab = "Number of Steps")
+lines(x = time, y = averageSteps, col = "red")
+
+averageDailyActivity[order(averageSteps, decreasing = TRUE),]
+```
+
+###Inputting Missing Values
+
+As with most, if not all, data sets, the activity data sets contains some missing values for steps. We will default the missing values with the mean number of steps for that time interval on all days.
+
+```{r echo=TRUE}
+dataReplaceNA <- data
+dataReplaceNAGroup <- group_by(dataNoNA, time)
+dataReplaceNATimeAverage <- summarise(dataReplaceNAGroup, averageSteps = mean(steps))
+dataReplaceNA <- merge(dataReplaceNA, dataReplaceNATimeAverage, by = "time")
+
+dataReplaceNA[is.na(dataReplaceNA$steps),]$steps <- dataReplaceNA[is.na(dataReplaceNA$steps),]$averageSteps
+
+summary(dataReplaceNA)
+```
+
+Now that we have replaced the missing values with the average number of steps across all time intervals we can review the distribution of values with a histogram.
+
+```{r echo=TRUE}
+dailyGroup <- group_by(dataReplaceNA, date)
+dailyTotalSteps <- summarise(dailyGroup, sumSteps = sum(steps))
+head(dailyTotalSteps)
+
+hist(dailyTotalSteps$sumSteps, col = "red", main = "Total Steps per Day", xlab = "Steps", ylab = "Frequency")
+
+meanSteps = mean(dailyTotalSteps$sumSteps)
+medianSteps = median(dailyTotalSteps$sumSteps)
+
+meanSteps
+medianSteps
+```
+
+We can see from the histogram that the frequency of values has increased at the peak. The net result of this on the mean and median steps per day is that these data are now in line.
+
+###Weekdays vs Weekends
+
+To determine the difference between weekday and weekend actvity we first need to identify which days fall into which category. We do this by using the weekday() function and split the identified days into two levels within a factor variable. 
+
+```{r echo=TRUE}
+dataReplaceNA$dayType <- as.factor(weekdays(dataReplaceNA$dateTime))
+levels(dataReplaceNA$dayType) <- list(Weekday = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday"),
+                                        Weekend = c("Saturday", "Sunday"))
+
+head(dataReplaceNA)
+```
+
+To compare the weekend and weekday activity we can now plot them.
+
+```{r echo=TRUE}
+averageDailyActivityGroup <- group_by(dataReplaceNA, interval, dayType)
+averageDailyActivity <- summarise(averageDailyActivityGroup, averageSteps = mean(steps))
+
+with(averageDailyActivity, xyplot(averageSteps ~ interval | dayType, main = "Weekday vs Weekend | Average Activity", ylab = "Average Steps", xlab = "Time", type = "l", layout = c(1,2)))
+```
+
